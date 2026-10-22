@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const dbDirectory = dirname(fileURLToPath(import.meta.url));
 let DatabaseSync;
 
 async function loadLocalSqlite() {
@@ -39,7 +39,7 @@ export function verifyPassword(plain, stored) {
   }
 }
 
-export async function openDatabase(file = join(__dirname, '..', 'data', 'store.db')) {
+export async function openDatabase(file = join(dbDirectory, '..', 'data', 'store.db')) {
   const url = process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL;
   const authToken = process.env.TURSO_AUTH_TOKEN || process.env.LIBSQL_AUTH_TOKEN;
 
@@ -72,10 +72,10 @@ export async function openDatabase(file = join(__dirname, '..', 'data', 'store.d
 
 export async function migrate(db) {
   const schemaCandidates = [
-    join(__dirname, 'schema.sql'),
+    join(dbDirectory, 'schema.sql'),
     join(process.cwd(), 'server', 'schema.sql'),
     join(process.cwd(), 'schema.sql'),
-    join(__dirname, 'server', 'schema.sql'),
+    join(dbDirectory, 'server', 'schema.sql'),
   ];
   let schema;
   for (const path of schemaCandidates) {
@@ -195,4 +195,4 @@ export const toRupees = (paise) => ((paise ?? 0) / 100).toFixed(2);
 /** ₹ string -> integer paise */
 export const toPaise = (rupees) => Math.round(Number(rupees || 0) * 100);
 
-export { __dirname };
+export { dbDirectory as __dirname };

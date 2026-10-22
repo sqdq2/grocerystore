@@ -26,8 +26,8 @@ import {
   listCustomers, getCustomer, createCustomer, updateCustomer, adjustLoyalty,
 } from './customers.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PUBLIC_DIR = join(__dirname, '..', 'public');
+const serverDirectory = dirname(fileURLToPath(import.meta.url));
+const PUBLIC_DIR = join(serverDirectory, '..', 'public');
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -38,7 +38,7 @@ async function initializeDatabase() {
   if (!dbInit) {
     dbInit = (async () => {
       assertAuthSecret();
-      db = await openDatabase(process.env.BGS_DB || join(__dirname, '..', 'data', 'store.db'));
+      db = await openDatabase(process.env.BGS_DB || join(serverDirectory, '..', 'data', 'store.db'));
       const bootstrap = await seedDatabase(db);
       if (!bootstrap.skipped) console.log('[db] bootstrapped:', JSON.stringify(bootstrap.counts));
       return db;
