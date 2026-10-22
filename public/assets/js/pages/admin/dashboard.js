@@ -17,7 +17,7 @@ export async function dashboardPage() {
   const [dash, alerts, hourData] = await Promise.all([
     api.get('/reports/dashboard?days=14'),
     api.get('/alerts?unread=1'),
-    api.get('/reports/sales').then((r) => ({ byHour: r.byHour })).catch(() => ({ byHour: [] })),
+    api.get('/reports/sales').catch(() => ({ byHour: [], paymentMix: [] })),
   ]);
 
   const d = dash;
@@ -25,11 +25,10 @@ export async function dashboardPage() {
   const series = toSeries(d.series);
   const topAlert = alerts.items.slice(0, 5);
 
-  const payMix = [
-    { label: 'UPI', value: d.series.reduce((s, x) => s + (x.upi || 0), 0), color: 'var(--brand-600)' },
-    { label: 'Cash', value: d.series.reduce((s, x) => s + (x.cash || 0), 0), color: 'var(--saffron-500)' },
-    { label: 'Card', value: d.series.reduce((s, x) => s + (x.card || 0), 0), color: 'var(--info)' },
-  ].filter((x) => x.value > 0);
+  const MODE_COLOR = { upi: 'var(--brand-600)', cash: 'var(--saffron-500)', card: 'var(--info)' };
+  const payMix = (hourData.paymentMix || [])
+    .map((m) => ({ label: titleCase(m.mode), value: m.revenue, color: MODE_COLOR[m.mode] }))
+    .filter((x) => x.value > 0);
 
   return {
     title: 'Dashboard',
