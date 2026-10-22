@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Bijasan General Store — Fresh groceries in Waghai</title>
+
+  <meta name="description" content="Bijasan General Store, Waghai — fresh atta, dal, spices, dairy and household essentials with same-day local delivery. Grocery Store Management System.">
+  <meta name="theme-color" content="#059669">
+  <meta name="color-scheme" content="light dark">
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23059669'/%3E%3Cpath d='M9 13.5 16 9l7 4.5v7L16 25l-7-4.5v-7Z' fill='none' stroke='white' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M9 13.5 16 18l7-4.5M16 18v7' fill='none' stroke='white' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23059669'/%3E%3Cpath d='M9 13.5 16 9l7 4.5v7L16 25l-7-4.5v-7Z' fill='none' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
+
+  <!-- Fonts: preconnect first so the optional webfont costs nothing when offline.
+       The stack falls back to high-quality system faces, so layout never shifts. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" media="print" onload="this.media='all'"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap">
+
+  <link rel="stylesheet" href="/assets/css/tokens.css">
+  <link rel="stylesheet" href="/assets/css/app.css">
+
+  <script type="module" src="/assets/js/main.js"></script>
+
+  <style>
+    /* Critical inline styles — the page is never blank, even before CSS lands */
+    html { background: #f8f8f7; }
+    @media (prefers-color-scheme: dark) { html:not([data-theme="light"]) { background: #0b0f0e; } }
+    html[data-theme="dark"] { background: #0b0f0e; }
+    #app:empty::after {
+      content: 'Opening the shop…';
+      position: fixed; inset: 0; display: grid; place-items: center;
+      font: 500 0.9rem/1.4 system-ui, sans-serif; color: #737373;
+    }
+    /* hide on narrow screens where the aside is decorative */
+    @media (max-width: 1100px) { .hide-mobile { display: none !important; } }
+    .hidden-sm { display: inline-flex; }
+    @media (max-width: 420px) { .hidden-sm { display: none !important; } }
+
+    /* Ticker marquee */
+    .ticker { overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
+               mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent); }
+    .ticker-track { display: flex; gap: 0.75rem; width: max-content; animation: marquee 42s linear infinite; }
+    .ticker:hover .ticker-track { animation-play-state: paused; }
+    .ticker-item {
+      display: inline-flex; align-items: center; gap: 0.5rem; flex: none;
+      padding: 0.45rem 0.85rem; border-radius: 999px;
+      background: var(--surface); border: 1px solid var(--border);
+      font-size: var(--fs-sm); cursor: pointer; white-space: nowrap;
+      transition: border-color var(--dur) var(--ease), transform var(--dur) var(--ease);
+    }
+    .ticker-item:hover { border-color: var(--primary); transform: translateY(-2px); }
+    .ticker-emoji { font-size: 1.05rem; }
+    .ticker-name { font-weight: 550; }
+    .ticker-price { color: var(--primary); font-weight: 650; font-variant-numeric: tabular-nums; }
+    .ticker-item svg { color: var(--text-subtle); }
+    @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+    @media (prefers-reduced-motion: reduce) { .ticker-track { animation: none; } }
+  </style>
+</head>
+<body>
+  <a href="#main" class="sr-only">Skip to content</a>
+  <div id="app">
+    <div id="chrome"></div>
+    <div id="view"></div>
+  </div>
+  <noscript>
+    <div style="max-width:44ch;margin:12vh auto;padding:2rem;text-align:center;font-family:system-ui,sans-serif">
+      <h1>JavaScript is required</h1>
+      <p style="color:#666">Bijasan General Store uses JavaScript to show live stock, cart and billing. Please enable it and reload.</p>
+    </div>
+  </noscript>
+</body>
+</html>

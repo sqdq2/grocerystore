@@ -1,0 +1,19 @@
+{
+  "name": "bijasan-grocery-store",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bijasan General Store — Grocery Store Management System (storefront + operations console + SQLite)",
+  "type": "module",
+  "main": "server/index.js",
+  "engines": { "node": ">=22.5.0" },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "seed": "node server/seed.js",
+    "reset": "rm -f data/store.db data/store.db-wal data/store.db-shm && node server/seed.js",
+    "test": "node scripts/test-api.mjs"
+  },
+  "keywords": ["grocery", "inventory", "pos", "billing", "sqlite", "ecommerce"],
+  "license": "MIT",
+  "dependencies": {}
+}
