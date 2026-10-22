@@ -1,0 +1,17 @@
+# One-click deploy to Render (real Node server + persistent SQLite disk)
+services:
+  - type: web
+    name: bijasan-grocery-store
+    runtime: node
+    plan: free
+    buildCommand: npm run reset
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: BGS_SECRET
+        generateValue: true
+    disk:
+      name: grocery-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
