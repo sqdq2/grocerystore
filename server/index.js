@@ -1,16 +1,6 @@
-/**
- * Bijasan General Store — Grocery Store Management System
- * Zero-dependency Node server (node:http + node:sqlite).
- *
- *   npm start            → http://localhost:3000
- *   PORT=8080 npm start  → custom port
- *
- * Deploy target from the deck: Web Browser / Mobile → HTTPS 443 → Web Server
- * → Application Server (this process) → SQLite database.
- */
 import { createServer } from 'node:http';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { openDatabase, migrate, q, hashPassword, verifyPassword, tx, toRupees } from './db.js';
 import { seedDatabase } from './seed.js';
@@ -419,61 +409,70 @@ router.post('/api/reports/save', async (req, res, ctx) => {
 });
 
 /* ---------------------------------------------------------------- server -- */
-const server = createServer(async (req, res) => {
-  const cookies = parseCookies(req);
-  attachUser(db, cookies)(req);
+export function createRequestHandler() {
+  return async (req, res) => {
+    const cookies = parseCookies(req);
+    attachUser(db, cookies)(req);
 
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  let pathname = url.pathname;
-  if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1);
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    let pathname = url.pathname;
+    if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1);
 
-  // security headers
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  res.setHeader('Referrer-Policy', 'same-origin');
+    // security headers
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'same-origin');
 
-  const route = router.match(req.method, pathname);
+    const route = router.match(req.method, pathname);
 
-  if (route) {
-    const ctx = { params: route.params, query: url.searchParams, cookies, body: {} };
-    try {
-      if (['POST', 'PATCH', 'PUT'].includes(req.method)) ctx.body = await readJson(req);
-      const result = await route.handler(req, res, ctx);
-      if (!res.writableEnded) ok(res, result ?? { ok: true });
-    } catch (err) {
-      if (res.writableEnded || res.headersSent) return;
-      if (err instanceof HttpError) {
-        fail(res, err.status, err.message, err.details ? { details: err.details } : undefined);
-      } else {
-        console.error(`[error] ${req.method} ${pathname}`, err);
-        fail(res, 500, 'Something went wrong on our side. Please try again.');
+    if (route) {
+      const ctx = { params: route.params, query: url.searchParams, cookies, body: {} };
+      try {
+        if (['POST', 'PATCH', 'PUT'].includes(req.method)) ctx.body = await readJson(req);
+        const result = await route.handler(req, res, ctx);
+        if (!res.writableEnded) ok(res, result ?? { ok: true });
+      } catch (err) {
+        if (res.writableEnded || res.headersSent) return;
+        if (err instanceof HttpError) {
+          fail(res, err.status, err.message, err.details ? { details: err.details } : undefined);
+        } else {
+          console.error(`[error] ${req.method} ${pathname}`, err);
+          fail(res, 500, 'Something went wrong on our side. Please try again.');
+        }
       }
+      return;
     }
-    return;
-  }
 
-  if (pathname.startsWith('/api/')) return fail(res, 404, `No API route for ${req.method} ${pathname}`);
+    if (pathname.startsWith('/api/')) return fail(res, 404, `No API route for ${req.method} ${pathname}`);
 
-  // static assets + SPA fallback
-  if (serveStatic(PUBLIC_DIR, res, pathname === '/' ? '/index.html' : pathname)) return;
-  if (req.method === 'GET' && !extnameGuarded(pathname)) {
-    if (serveStatic(PUBLIC_DIR, res, '/index.html')) return;
-  }
-  fail(res, 404, 'Not found');
-});
+    // static assets + SPA fallback
+    if (serveStatic(PUBLIC_DIR, res, pathname === '/' ? '/index.html' : pathname)) return;
+    if (req.method === 'GET' && !extnameGuarded(pathname)) {
+      if (serveStatic(PUBLIC_DIR, res, '/index.html')) return;
+    }
+    fail(res, 404, 'Not found');
+  };
+}
 
 function extnameGuarded(p) {
   const last = p.slice(p.lastIndexOf('/') + 1);
   return last.includes('.');
 }
 
-server.listen(PORT, HOST, () => {
-  console.log(`\n  🛒  ${STORE.name} — Grocery Store Management System`);
-  console.log(`      Storefront : http://localhost:${PORT}`);
-  console.log(`      API index  : http://localhost:${PORT}/api`);
-  console.log(`      Sign in    : ayush.bagul@bijasan.example / Admin@123\n`);
-});
+const isDirectExecution = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+const server = createServer(createRequestHandler());
 
-for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, () => { try { db.close(); } catch { /* noop */ } process.exit(0); });
+if (isDirectExecution) {
+  server.listen(PORT, HOST, () => {
+    console.log(`\n  🛒  ${STORE.name} — Grocery Store Management System`);
+    console.log(`      Storefront : http://localhost:${PORT}`);
+    console.log(`      API index  : http://localhost:${PORT}/api`);
+    console.log(`      Sign in    : ayush.bagul@bijasan.example / Admin@123\n`);
+  });
+
+  for (const sig of ['SIGINT', 'SIGTERM']) {
+    process.on(sig, () => { try { db.close(); } catch { /* noop */ } process.exit(0); });
+  }
 }
+
+export default createRequestHandler();
