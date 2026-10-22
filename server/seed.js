@@ -136,38 +136,51 @@ const int = (a, b) => Math.floor(a + rnd() * (b - a + 1));
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
 /* ------------------------------------------------------------------ main -- */
-export function seedDatabase(file) {
-  const db = openDatabase(file);
-  migrate(db);
+export async function seedDatabase(databaseOrFile) {
+  const db = databaseOrFile && (databaseOrFile.prepare || databaseOrFile.execute)
+    ? databaseOrFile
+    : await openDatabase(databaseOrFile);
+  await migrate(db);
 
-  const already = q.scalar(db, 'SELECT COUNT(*) AS c FROM products');
-  if (already > 0) return { db, skipped: true };
+  const seeded = await tx(db, async (txdb) => {
+    const migration = await q.get(txdb, "SELECT name FROM app_migrations WHERE name = 'seed-demo-v1'");
+    const existingProducts = await q.scalar(txdb, 'SELECT COUNT(*) AS c FROM products');
+    if (migration || existingProducts > 0) {
+      if (!migration) await q.run(txdb, "INSERT INTO app_migrations (name) VALUES ('seed-demo-v1')");
+      return false;
+    }
 
-  tx(db, () => {
+    q.startBatch(txdb);
+
     /* users */
-    const insUser = `INSERT INTO users (name,email,phone,password_hash,role) VALUES (?,?,?,?,?)`;
-    for (const [name, email, phone, role, pw] of STAFF) {
-      q.run(db, insUser, name, email, phone, hashPassword(pw), role);
+    const insUser = `INSERT INTO users (id,name,email,phone,password_hash,role) VALUES (?,?,?,?,?,?)`;
+    for (const [i, [name, email, phone, role, pw]] of STAFF.entries()) {
+      await q.run(txdb, insUser, i + 1, name, email, phone, hashPassword(pw), role);
     }
 
     /* categories */
     const catId = {};
-    CATEGORIES.forEach((c, i) => {
-      const r = q.run(db,
-        `INSERT INTO categories (slug,name,description,icon,accent,sort_order) VALUES (?,?,?,?,?,?)`,
-        c.slug, c.name, c.desc, c.icon, c.accent, i);
-      catId[c.slug] = Number(r.lastInsertRowid);
-    });
+    for (const [i, c] of CATEGORIES.entries()) {
+      await q.run(txdb,
+        `INSERT INTO categories (id,slug,name,description,icon,accent,sort_order) VALUES (?,?,?,?,?,?,?)`,
+        i + 1, c.slug, c.name, c.desc, c.icon, c.accent, i);
+      catId[c.slug] = i + 1;
+    }
 
     /* suppliers */
-    const supIds = SUPPLIERS.map((s) => Number(q.run(db,
-      `INSERT INTO suppliers (name,contact,phone,email,address,gst_number,lead_time_days)
-       VALUES (?,?,?,?,?,?,?)`, s.name, s.contact, s.phone, s.email, s.address, s.gst_number, s.lead_time_days).lastInsertRowid));
+    const supIds = [];
+    for (const [i, supplier] of SUPPLIERS.entries()) {
+      await q.run(txdb,
+        `INSERT INTO suppliers (id,name,contact,phone,email,address,gst_number,lead_time_days)
+         VALUES (?,?,?,?,?,?,?,?)`, i + 1, supplier.name, supplier.contact, supplier.phone, supplier.email,
+        supplier.address, supplier.gst_number, supplier.lead_time_days);
+      supIds.push(i + 1);
+    }
 
     /* products + stock */
     const products = [];
     const usedSlugs = new Map();
-    PRODUCTS.forEach((row, i) => {
+    for (const [i, row] of PRODUCTS.entries()) {
       const [name, cat, brand, pack, unit, price, mrp, tax, stock, reorder, featured] = row;
       const sku = `BGS-${String(i + 1).padStart(4, '0')}`;
       // some product names already carry the brand ("Turmeric Powder · MDH")
@@ -181,37 +194,40 @@ export function seedDatabase(file) {
       const slug = seen > 1 ? `${baseSlug}-${seen}` : baseSlug;
       const priceP = toPaise(price);
       const mrpP = toPaise(mrp);
-      const pid = Number(q.run(db,
-        `INSERT INTO products (sku,slug,name,description,category_id,supplier_id,price,mrp,unit,pack_size,tax_rate,barcode,brand,is_featured)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        sku, slug, name,
+      const pid = i + 1;
+      await q.run(txdb,
+        `INSERT INTO products (id,sku,slug,name,description,category_id,supplier_id,price,mrp,unit,pack_size,tax_rate,barcode,brand,is_featured)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        pid, sku, slug, name,
         `${display} ${pack}. Stocked fresh and kept at Bijasan General Store, Waghai — ask us for a fresh batch.`,
         catId[cat], supIds[i % supIds.length], priceP, mrpP, unit, pack, tax,
         `890${String(1000000000 + i * 7919).slice(0, 10)}`, brand, featured
-      ).lastInsertRowid);
+      );
       const opening = stock * 3;                      // store holds ~3 reorder cycles
-      q.run(db,
+      await q.run(txdb,
         `INSERT INTO stock (product_id,quantity,reorder_level,reorder_quantity,last_restocked_at)
          VALUES (?,?,?,?,?)`, pid, opening, reorder, reorder * 3, new Date(Date.now() - int(1, 20) * 864e5).toISOString());
       products.push({ id: pid, price: priceP, tax, stock: opening, name, sku, reorder, reorderQty: reorder * 3 });
-      q.run(db,
+      await q.run(txdb,
         `INSERT INTO stock_movements (product_id,change,balance_after,reason,user_id)
          VALUES (?,?,?,?,?)`, pid, opening, opening, 'opening', 1);
-    });
+    }
 
     /* customers */
-    const custIds = CUSTOMERS.map(([name, phone, address, points, spent]) => {
+    const custIds = [];
+    for (const [i, [name, phone, address, points, spent]] of CUSTOMERS.entries()) {
       const email = `${slugify(name).replace(/-/g, '.')}@example.com`;
-      return Number(q.run(db,
-        `INSERT INTO customers (name,email,phone,address,city,postal_code,loyalty_points,total_spent)
-         VALUES (?,?,?,?,?,?,?,?)`,
-        name, email, phone, address, 'Waghai', '394730', points, toPaise(spent)).lastInsertRowid);
-    });
+      await q.run(txdb,
+        `INSERT INTO customers (id,name,email,phone,address,city,postal_code,loyalty_points,total_spent)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
+        i + 1, name, email, phone, address, 'Waghai', '394730', points, toPaise(spent));
+      custIds.push(i + 1);
+    }
 
     /* 45 days of sales history */
     const insOrder = `INSERT INTO orders
-      (order_no,customer_id,user_id,status,payment_mode,payment_status,subtotal,discount,tax,delivery_fee,total,address,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+      (id,order_no,customer_id,user_id,status,payment_mode,payment_status,subtotal,discount,tax,delivery_fee,total,address,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
     const insItem  = `INSERT INTO order_items
       (order_id,product_id,product_name,sku,pack_size,unit_price,quantity,tax_rate,line_total)
       VALUES (?,?,?,?,?,?,?,?,?)`;
@@ -234,8 +250,8 @@ export function seedDatabase(file) {
           const received = p.reorderQty;
           const before = p.stock;
           p.stock = before + received;
-          q.run(db, setStock, p.stock, dayIso, dayIso, p.id);
-          q.run(db, movStock, p.id, received, p.stock, 'restock', `GRN-${dayIso.slice(0, 10)}`, 2, dayIso);
+          await q.run(txdb, setStock, p.stock, dayIso, dayIso, p.id);
+          await q.run(txdb, movStock, p.id, received, p.stock, 'restock', `GRN-${dayIso.slice(0, 10)}`, 2, dayIso);
         }
       }
 
@@ -277,29 +293,30 @@ export function seedDatabase(file) {
         const ts = new Date(day.setHours(int(8, 21), int(0, 59), 0)).toISOString();
 
         orderSeq++;
+        const oid = orderSeq;
         const orderNo = `BGS-2609-${String(1000 + orderSeq)}`;
-        const oid = Number(q.run(db, insOrder,
-          orderNo, cust, cashier, status, payMode, payStatus,
+        await q.run(txdb, insOrder,
+          oid, orderNo, cust, cashier, status, payMode, payStatus,
           subtotal, discount, tax, delivery, total,
-          CUSTOMERS[(cust - 1) % CUSTOMERS.length][2], ts, ts).lastInsertRowid);
+          CUSTOMERS[(cust - 1) % CUSTOMERS.length][2], ts, ts);
 
         for (const { p, qty, lineTax, lineTotal } of lines) {
-          q.run(db, insItem, oid, p.id, p.name, p.sku, null, p.price, qty, p.tax, lineTotal);
+          await q.run(txdb, insItem, oid, p.id, p.name, p.sku, null, p.price, qty, p.tax, lineTotal);
           // never let the journal push stock below zero — clamp the deduction
           const take = Math.min(qty, p.stock);
           const bal = p.stock - take;
           if (take > 0) {
-            q.run(db, movStock, p.id, -take, bal, 'sale', orderNo, cashier, ts);
-            q.run(db, updStock, take, ts, p.id);
+            await q.run(txdb, movStock, p.id, -take, bal, 'sale', orderNo, cashier, ts);
+            await q.run(txdb, updStock, take, ts, p.id);
           }
           p.stock = bal;
         }
 
         if (status !== 'cancelled') {
           invSeq++;
-          q.run(db, insInv, `INV-26-${String(10000 + invSeq)}`, oid, total, payMode, ts);
+          await q.run(txdb, insInv, `INV-26-${String(10000 + invSeq)}`, oid, total, payMode, ts);
           if (payStatus === 'paid') {
-            q.run(db, bumpCust, total, Math.floor(total / 10000), cust);
+            await q.run(txdb, bumpCust, total, Math.floor(total / 10000), cust);
           }
         }
       }
@@ -307,24 +324,24 @@ export function seedDatabase(file) {
     }
 
     /* today's end-of-day state: fresh items that sold out, low-stock lines */
-    const soldOutToday = q.all(db,
+    const soldOutToday = await q.all(txdb,
       `SELECT p.id,p.name,s.quantity FROM products p JOIN stock s ON s.product_id=p.id
        WHERE p.category_id = (SELECT id FROM categories WHERE slug='dairy')
        ORDER BY s.quantity ASC LIMIT 2`);
     for (const r of soldOutToday) {
       const lost = r.quantity;
-      q.run(db, `UPDATE stock SET quantity = 0, updated_at = datetime('now') WHERE product_id = ?`, r.id);
+      await q.run(txdb, `UPDATE stock SET quantity = 0, updated_at = datetime('now') WHERE product_id = ?`, r.id);
       if (lost > 0) {
-        q.run(db, movStock, r.id, -lost, 0, 'sale', 'BGS-2609-walkin', 3, new Date().toISOString());
+        await q.run(txdb, movStock, r.id, -lost, 0, 'sale', 'BGS-2609-walkin', 3, new Date().toISOString());
       }
     }
 
     /* low-stock alerts */
-    const lowRows = q.all(db, `SELECT p.id,p.name,s.quantity,s.reorder_level FROM products p
+    const lowRows = await q.all(txdb, `SELECT p.id,p.name,s.quantity,s.reorder_level FROM products p
                                 JOIN stock s ON s.product_id=p.id WHERE s.quantity <= s.reorder_level`);
     const insAlert = `INSERT INTO alerts (product_id,type,message,severity) VALUES (?,?,?,?)`;
     for (const r of lowRows) {
-      q.run(db, insAlert, r.id,
+      await q.run(txdb, insAlert, r.id,
         r.quantity === 0 ? 'out_of_stock' : 'low_stock',
         r.quantity === 0
           ? `${r.name} is out of stock — reorder required`
@@ -333,33 +350,34 @@ export function seedDatabase(file) {
     }
 
     /* a saved report snapshot */
-    const daily = q.get(db,
+    const daily = await q.get(txdb,
       `SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS revenue FROM orders
        WHERE date(created_at) = date('now') AND status <> 'cancelled'`);
-    q.run(db, `INSERT INTO reports (report_type,period,payload,generated_by) VALUES (?,?,?,?)`,
+    await q.run(txdb, `INSERT INTO reports (report_type,period,payload,generated_by) VALUES (?,?,?,?)`,
       'sales_daily', new Date().toISOString().slice(0, 10),
       JSON.stringify({ orders: daily.orders, revenue: daily.revenue, currency: 'INR' }), 1);
+    await q.run(txdb, "INSERT INTO app_migrations (name) VALUES ('seed-demo-v1')");
+    return true;
   });
 
-  return {
-    db,
-    skipped: false,
-    counts: {
-      categories: q.scalar(db, 'SELECT COUNT(*) c FROM categories'),
-      products:   q.scalar(db, 'SELECT COUNT(*) c FROM products'),
-      suppliers:  q.scalar(db, 'SELECT COUNT(*) c FROM suppliers'),
-      customers:  q.scalar(db, 'SELECT COUNT(*) c FROM customers'),
-      orders:     q.scalar(db, 'SELECT COUNT(*) c FROM orders'),
-      items:      q.scalar(db, 'SELECT COUNT(*) c FROM order_items'),
-      invoices:   q.scalar(db, 'SELECT COUNT(*) c FROM invoices'),
-      alerts:     q.scalar(db, 'SELECT COUNT(*) c FROM alerts'),
-    },
-  };
+  if (!seeded) return { db, skipped: true };
+
+  const [categories, products, suppliers, customers, orders, items, invoices, alerts] = await Promise.all([
+    q.scalar(db, 'SELECT COUNT(*) c FROM categories'),
+    q.scalar(db, 'SELECT COUNT(*) c FROM products'),
+    q.scalar(db, 'SELECT COUNT(*) c FROM suppliers'),
+    q.scalar(db, 'SELECT COUNT(*) c FROM customers'),
+    q.scalar(db, 'SELECT COUNT(*) c FROM orders'),
+    q.scalar(db, 'SELECT COUNT(*) c FROM order_items'),
+    q.scalar(db, 'SELECT COUNT(*) c FROM invoices'),
+    q.scalar(db, 'SELECT COUNT(*) c FROM alerts'),
+  ]);
+  return { db, skipped: false, counts: { categories, products, suppliers, customers, orders, items, invoices, alerts } };
 }
 
 // Run directly:  node server/seed.js
 if (process.argv[1] && process.argv[1].endsWith('seed.js')) {
-  const res = seedDatabase();
+  const res = await seedDatabase();
   console.log(res.skipped ? 'Database already seeded.' : `Seeded: ${JSON.stringify(res.counts, null, 2)}`);
-  res.db.close();
+  await res.db.close?.();
 }

@@ -11,7 +11,7 @@ It ships **two complete applications in one codebase**:
 | URL | `/` | `/admin` |
 | Features | Browse, search, filter, cart, checkout, payment, invoice, order tracking | Live dashboard, POS billing counter, inventory, orders, reports, suppliers, customers, staff roles |
 
-**Zero dependencies. Zero build step. Real database.**
+**No frontend build step. Persistent database in production.**
 
 ---
 
@@ -20,11 +20,13 @@ It ships **two complete applications in one codebase**:
 ```bash
 git clone https://github.com/sqdq2/grocerystore.git
 cd grocerystore
+npm install
+export BGS_SECRET="$(openssl rand -hex 32)"
 npm start          # → http://localhost:3000
 ```
 
-That's it. No `npm install` is needed — there are no runtime dependencies.
-The database is created and seeded automatically on first run.
+Keep the same `BGS_SECRET` for later runs so existing sign-in tokens remain valid.
+The local SQLite database is created and seeded automatically on first run.
 
 ```bash
 npm run dev        # auto-restart on file changes
@@ -32,7 +34,8 @@ npm run reset      # wipe the database and re-seed
 npm test           # 109 end-to-end API checks
 ```
 
-**Requires Node.js ≥ 22.5** (uses the built-in `node:sqlite` module — no native builds, no `node_modules`).
+**Requires Node.js ≥ 22.5.** Local development uses Node's built-in `node:sqlite`;
+Netlify uses the async `@libsql/client` adapter and a persistent Turso/libSQL database.
 
 ---
 
@@ -52,8 +55,9 @@ requesting `/api/reports/sales` gets a 403 even if they open the page directly.
 
 ## 🗄️ Database
 
-Real **SQLite** (via Node's built-in `node:sqlite`), file at `data/store.db`.
-Schema: `server/schema.sql` — 12 tables, 3 indexes, 2 triggers.
+SQLite-compatible database. Local development uses Node's built-in SQLite file at
+`data/store.db`; Netlify Functions use a durable Turso/libSQL database so writes
+survive cold starts and function-instance changes. Schema: `server/schema.sql`.
 
 ```
 users ──┐                    orders ── order_items
@@ -93,16 +97,43 @@ alerts · reports
 - Daily goods-receipt runs, so low-stock and out-of-stock states occur naturally
 - 3 live alerts (2 out of stock, 1 low stock)
 
+On startup the server applies the idempotent SQL schema and runs the `seed-demo-v1`
+bootstrap migration only when the database is empty. Its migration marker and all
+seed inserts commit in one transaction, so subsequent function invocations do not
+reseed or overwrite store data.
+
+### Deploy to Netlify
+
+The repo includes `netlify.toml`, the `netlify/functions/api.mjs` function entry,
+and rewrites for `/api/*` plus SPA routes such as `/admin`. Connect the GitHub repo
+to Netlify; no frontend build command is needed. Configure these **site environment
+variables** before the first API request:
+
+| Variable | Value |
+|---|---|
+| `TURSO_DATABASE_URL` | Your Turso database URL (`libsql://...`) |
+| `TURSO_AUTH_TOKEN` | A token for that database |
+| `BGS_SECRET` | A private random secret of at least 32 characters |
+
+The API applies the schema and seed migration automatically to the configured
+database on its first request. Keep these values in Netlify's environment-variable
+settings, not in the repository. Local development can continue to use the file
+database without those variables; the production function deliberately fails
+clearly rather than silently using ephemeral local storage.
+
 ---
 
 ## 🧱 Architecture
 
 ```
 grocery/
-├── server/                  ← zero-dependency Node server
+├── netlify/
+│   └── functions/api.mjs    ← serverless API entry point
+├── netlify.toml             ← publish directory + API/SPA rewrites
+├── server/                  ← Node API server and shared handlers
 │   ├── index.js             HTTP server, routes, static serving
 │   ├── schema.sql           relational schema + triggers
-│   ├── db.js                SQLite layer, scrypt hashing, transactions
+│   ├── db.js                local SQLite + async libSQL, hashing, transactions
 │   ├── seed.js              deterministic demo data
 │   ├── auth.js              HMAC tokens + role-based access control
 │   ├── catalog.js           products, categories, stock state machine
@@ -202,7 +233,7 @@ The presentation's UML and requirements are implemented literally:
 | State Diagram | Product state machine in SQL triggers |
 | Activity Diagram | Sale flow in `billing.js` (stock check → payment → invoice → deduct) |
 | Sequence Diagram | Auth → inventory → payment → invoice → stock deduction |
-| Deployment Diagram | Browser/Mobile → HTTPS → Web Server → App Server → SQLite |
+| Deployment Diagram | Browser → Netlify static assets + Functions → durable Turso/libSQL database |
 | Agile model | Two-week sprints, priority order Login → Inventory → Billing → Reports → Alerts |
 
 ---

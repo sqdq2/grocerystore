@@ -53,7 +53,7 @@ export function priceCart(lines, { discountPct = 0, delivery = true } = {}) {
 }
 
 /* ------------------------------------------------------------ order read -- */
-export function listOrders(db, opts = {}) {
+export async function listOrders(db, opts = {}) {
   const { status, search, customerId, from, to, page = 1, perPage = 20 } = opts;
   const where = ['1=1'];
   const args = [];
@@ -72,11 +72,11 @@ export function listOrders(db, opts = {}) {
   if (to)   { where.push('date(o.created_at) <= date(?)'); args.push(to); }
 
   const whereSql = `WHERE ${where.join(' AND ')}`;
-  const total = q.scalar(db, `SELECT COUNT(*) FROM orders o LEFT JOIN customers cu ON cu.id=o.customer_id ${whereSql}`, ...args);
+  const total = await q.scalar(db, `SELECT COUNT(*) FROM orders o LEFT JOIN customers cu ON cu.id=o.customer_id ${whereSql}`, ...args);
   const per = Math.min(Math.max(1, Number(perPage) || 20), 100);
   const pg = Math.max(1, Number(page) || 1);
 
-  const rows = q.all(db, `
+  const rows = await q.all(db, `
     SELECT o.id, o.order_no, o.status, o.payment_mode, o.payment_status,
            o.subtotal, o.discount, o.tax, o.delivery_fee, o.total,
            o.created_at, o.updated_at, o.address,
@@ -98,8 +98,8 @@ export function listOrders(db, opts = {}) {
   };
 }
 
-export function getOrder(db, id) {
-  const order = q.get(db, `
+export async function getOrder(db, id) {
+  const order = await q.get(db, `
     SELECT o.*, cu.name AS customer_name, cu.phone AS customer_phone, cu.email AS customer_email,
            cu.loyalty_points, u.name AS cashier_name, i.invoice_no
     FROM orders o
@@ -110,7 +110,7 @@ export function getOrder(db, id) {
     /^\d+$/.test(String(id)) ? Number(id) : -1, String(id));
   if (!order) throw notFound(`Order ${id} was not found`);
 
-  order.items = q.all(db, 'SELECT * FROM order_items WHERE order_id = ? ORDER BY id', order.id);
+  order.items = await q.all(db, 'SELECT * FROM order_items WHERE order_id = ? ORDER BY id', order.id);
   order.totals_rupees = {
     subtotal: toRupees(order.subtotal),
     discount: toRupees(order.discount),
@@ -122,7 +122,7 @@ export function getOrder(db, id) {
 }
 
 /* ------------------------------------------------------------ order write -- */
-export function createOrder(db, body, user) {
+export async function createOrder(db, body, user) {
   const rawItems = Array.isArray(body.items) ? body.items : [];
   if (!rawItems.length) throw badRequest('A bill needs at least one item');
 
@@ -132,23 +132,22 @@ export function createOrder(db, body, user) {
   }
 
   // ---- resolve products from the database (never trust client prices) ----
-  const resolved = rawItems.map((it) => {
+  const resolved = [];
+  for (const it of rawItems) {
     const pid = Number(it.product_id ?? it.id);
     if (!pid) throw badRequest('Every line item needs a product_id');
-    const p = q.get(db, `SELECT p.*, s.quantity, s.reorder_level FROM products p
+    const p = await q.get(db, `SELECT p.*, s.quantity, s.reorder_level FROM products p
                          JOIN stock s ON s.product_id = p.id WHERE p.id = ?`, pid);
     if (!p) throw badRequest(`Product #${pid} does not exist`);
     if (p.status === 'discontinued') throw conflict(`${p.name} has been discontinued and cannot be sold`);
-
     const qty = Math.floor(Number(it.quantity));
     if (!(qty > 0)) throw badRequest(`Quantity for ${p.name} must be at least 1`);
-
-    return {
+    resolved.push({
       product_id: p.id, product_name: p.name, sku: p.sku, pack_size: p.pack_size,
       unit_price: p.price, quantity: qty, tax_rate: p.tax_rate,
       available: p.quantity, reorder_level: p.reorder_level,
-    };
-  });
+    });
+  }
 
   // ---- stock check (deck activity diagram: "Check stock availability?") ----
   const short = resolved.filter((r) => r.quantity > r.available);
@@ -165,12 +164,12 @@ export function createOrder(db, body, user) {
   const discountPct = Number(body.discount_pct ?? body.discountPct ?? 0);
   const totals = priceCart(resolved, { discountPct });
 
-  const orderNo = nextOrderNo(db);
+  const orderNo = await nextOrderNo(db);
   const now = new Date().toISOString();
   const paid = body.payment_status !== 'pending' && body.paid !== false;
 
-  const result = tx(db, () => {
-    const info = q.run(db, `
+  const result = await tx(db, async (transaction) => {
+    const info = await q.run(transaction, `
       INSERT INTO orders (order_no,customer_id,user_id,status,payment_mode,payment_status,
                           subtotal,discount,tax,delivery_fee,total,note,address,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -184,36 +183,36 @@ export function createOrder(db, body, user) {
     const orderId = Number(info.lastInsertRowid);
 
     for (const it of totals.items) {
-      q.run(db, `INSERT INTO order_items
+      await q.run(transaction, `INSERT INTO order_items
                    (order_id,product_id,product_name,sku,pack_size,unit_price,quantity,tax_rate,line_total)
                  VALUES (?,?,?,?,?,?,?,?,?)`,
         orderId, it.product_id, it.product_name, it.sku, it.pack_size,
         it.unit_price, it.quantity, it.tax_rate, it.line_total);
 
       // ---- deduct stock + journal the movement ----
-      q.run(db, `UPDATE stock SET quantity = quantity - ?, updated_at = ? WHERE product_id = ?`,
+      await q.run(transaction, `UPDATE stock SET quantity = quantity - ?, updated_at = ? WHERE product_id = ?`,
         it.quantity, now, it.product_id);
-      const bal = q.get(db, 'SELECT quantity, reorder_level FROM stock WHERE product_id = ?', it.product_id);
-      q.run(db, `INSERT INTO stock_movements (product_id,change,balance_after,reason,reference,user_id,created_at)
+      const bal = await q.get(transaction, 'SELECT quantity, reorder_level FROM stock WHERE product_id = ?', it.product_id);
+      await q.run(transaction, `INSERT INTO stock_movements (product_id,change,balance_after,reason,reference,user_id,created_at)
                  VALUES (?,?,?,?,?,?,?)`,
         it.product_id, -it.quantity, bal.quantity, 'sale', orderNo, user?.id ?? null, now);
     }
 
     // ---- invoice (only for completed sales) ----
     if (body.status !== 'pending') {
-      q.run(db, `INSERT INTO invoices (invoice_no,order_id,amount,payment_mode,issued_at) VALUES (?,?,?,?,?)`,
-        nextInvoiceNo(db), orderId, totals.total, paymentMode, now);
+      await q.run(transaction, `INSERT INTO invoices (invoice_no,order_id,amount,payment_mode,issued_at) VALUES (?,?,?,?,?)`,
+        await nextInvoiceNo(transaction), orderId, totals.total, paymentMode, now);
     }
 
     // ---- customer ledger ----
     if (body.customer_id) {
-      q.run(db, `UPDATE customers SET orders_count = orders_count + 1, total_spent = total_spent + ?,
+      await q.run(transaction, `UPDATE customers SET orders_count = orders_count + 1, total_spent = total_spent + ?,
                                    loyalty_points = loyalty_points + ? WHERE id = ?`,
         totals.total, Math.floor(totals.total / 10000), Number(body.customer_id));
     }
 
     // ---- alerts for anything that just crossed its threshold ----
-    for (const it of totals.items) raiseStockAlerts(db, it.product_id);
+    for (const it of totals.items) await raiseStockAlerts(transaction, it.product_id);
 
     return orderId;
   });
@@ -222,8 +221,8 @@ export function createOrder(db, body, user) {
 }
 
 /** Advance an order through the fulfilment lifecycle. */
-export function updateOrderStatus(db, id, status, userId) {
-  const order = q.get(db, 'SELECT id, order_no, status, payment_status, total FROM orders WHERE id = ? OR order_no = ?',
+export async function updateOrderStatus(db, id, status, userId) {
+  const order = await q.get(db, 'SELECT id, order_no, status, payment_status, total FROM orders WHERE id = ? OR order_no = ?',
     /^\d+$/.test(String(id)) ? Number(id) : -1, String(id));
   if (!order) throw notFound('Order not found');
   if (!ORDER_STATUSES.includes(status)) throw badRequest(`Unknown status "${status}"`);
@@ -241,37 +240,37 @@ export function updateOrderStatus(db, id, status, userId) {
     throw conflict(`Cannot move an order from ${order.status} to ${status}`);
   }
 
-  tx(db, () => {
-    q.run(db, `UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?`, status, order.id);
+  await tx(db, async (transaction) => {
+    await q.run(transaction, `UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?`, status, order.id);
 
     // cancellation returns the stock to the shelf
     if (status === 'cancelled') {
-      const items = q.all(db, 'SELECT product_id, quantity FROM order_items WHERE order_id = ?', order.id);
+      const items = await q.all(transaction, 'SELECT product_id, quantity FROM order_items WHERE order_id = ?', order.id);
       const now = new Date().toISOString();
       for (const it of items) {
         if (!it.product_id) continue;
-        q.run(db, `UPDATE stock SET quantity = quantity + ?, updated_at = ? WHERE product_id = ?`,
+        await q.run(transaction, `UPDATE stock SET quantity = quantity + ?, updated_at = ? WHERE product_id = ?`,
           it.quantity, now, it.product_id);
-        const bal = q.get(db, 'SELECT quantity FROM stock WHERE product_id = ?', it.product_id);
-        q.run(db, `INSERT INTO stock_movements (product_id,change,balance_after,reason,reference,user_id,created_at)
+        const bal = await q.get(transaction, 'SELECT quantity FROM stock WHERE product_id = ?', it.product_id);
+        await q.run(transaction, `INSERT INTO stock_movements (product_id,change,balance_after,reason,reference,user_id,created_at)
                    VALUES (?,?,?,?,?,?,?)`,
           it.product_id, it.quantity, bal.quantity, 'return', order.order_no, userId ?? null, now);
       }
       if (order.payment_status === 'paid') {
-        q.run(db, `UPDATE orders SET payment_status = 'refunded' WHERE id = ?`, order.id);
+        await q.run(transaction, `UPDATE orders SET payment_status = 'refunded' WHERE id = ?`, order.id);
       }
     }
 
     // reaching "delivered" issues the invoice if it was not issued yet
     if (status === 'delivered' && order.payment_status === 'pending') {
-      q.run(db, `UPDATE orders SET payment_status = 'paid' WHERE id = ?`, order.id);
+      await q.run(transaction, `UPDATE orders SET payment_status = 'paid' WHERE id = ?`, order.id);
     }
     if (status === 'delivered') {
-      const inv = q.get(db, 'SELECT id FROM invoices WHERE order_id = ?', order.id);
+      const inv = await q.get(transaction, 'SELECT id FROM invoices WHERE order_id = ?', order.id);
       if (!inv) {
-        q.run(db, `INSERT INTO invoices (invoice_no,order_id,amount,payment_mode,issued_at) VALUES (?,?,?,?,?)`,
-          nextInvoiceNo(db), order.id, order.total,
-          q.scalar(db, 'SELECT payment_mode FROM orders WHERE id = ?', order.id), new Date().toISOString());
+        await q.run(transaction, `INSERT INTO invoices (invoice_no,order_id,amount,payment_mode,issued_at) VALUES (?,?,?,?,?)`,
+          await nextInvoiceNo(transaction), order.id, order.total,
+          await q.scalar(transaction, 'SELECT payment_mode FROM orders WHERE id = ?', order.id), new Date().toISOString());
       }
     }
   });
@@ -281,15 +280,15 @@ export function updateOrderStatus(db, id, status, userId) {
 
 /* ---------------------------------------------------------- quote helper -- */
 /** Price a cart without saving — powers the live billing screen. */
-export function quote(db, body) {
-  const items = (body.items || []).map((it) => {
-    const p = q.get(db, `SELECT p.id,p.name,p.sku,p.pack_size,p.price,p.tax_rate,s.quantity
+export async function quote(db, body) {
+  const items = (await Promise.all((body.items || []).map(async (it) => {
+    const p = await q.get(db, `SELECT p.id,p.name,p.sku,p.pack_size,p.price,p.tax_rate,s.quantity
                          FROM products p JOIN stock s ON s.product_id=p.id WHERE p.id = ?`,
       Number(it.product_id ?? it.id));
     if (!p) return null;
     const quantity = Math.max(1, Math.floor(Number(it.quantity) || 1));
     return { ...p, product_name: p.name, unit_price: p.price, quantity, available: p.quantity };
-  }).filter(Boolean);
+  }))).filter(Boolean);
 
   if (!items.length) throw badRequest('Nothing to price — cart is empty');
   const totals = priceCart(items, { discountPct: Number(body.discount_pct || 0) });
@@ -314,16 +313,16 @@ export function quote(db, body) {
 }
 
 /* ------------------------------------------------------------- numbering -- */
-function nextOrderNo(db) {
+async function nextOrderNo(db) {
   const prefix = `BGS-${new Date().getFullYear().toString().slice(2)}${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-  const last = q.scalar(db, `SELECT order_no FROM orders WHERE order_no LIKE ? ORDER BY id DESC LIMIT 1`, `${prefix}%`);
+  const last = await q.scalar(db, `SELECT order_no FROM orders WHERE order_no LIKE ? ORDER BY id DESC LIMIT 1`, `${prefix}%`);
   const n = last ? parseInt(String(last).split('-').pop(), 10) : 1000;
   return `${prefix}-${(Number.isFinite(n) ? n + 1 : 1001)}`;
 }
 
-function nextInvoiceNo(db) {
+async function nextInvoiceNo(db) {
   const prefix = `INV-${new Date().getFullYear().toString().slice(2)}`;
-  const last = q.scalar(db, `SELECT invoice_no FROM invoices WHERE invoice_no LIKE ? ORDER BY id DESC LIMIT 1`, `${prefix}%`);
+  const last = await q.scalar(db, `SELECT invoice_no FROM invoices WHERE invoice_no LIKE ? ORDER BY id DESC LIMIT 1`, `${prefix}%`);
   const n = last ? parseInt(String(last).split('-').pop(), 10) : 10000;
   return `${prefix}-${(Number.isFinite(n) ? n + 1 : 10001)}`;
 }

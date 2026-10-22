@@ -204,6 +204,13 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 CREATE INDEX IF NOT EXISTS idx_reports_type ON reports(report_type, period);
 
+-- --------------------------------------------------------- app migrations ---
+-- The seed content is a one-time bootstrap migration, not per-request data.
+CREATE TABLE IF NOT EXISTS app_migrations (
+  name       TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- ----------------------------------------------------------- state machine --
 -- Available → Low Stock → Out of Stock → (restock) Available
 -- Available/Low/Out → Discontinued → Available

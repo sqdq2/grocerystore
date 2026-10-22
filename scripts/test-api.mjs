@@ -46,7 +46,12 @@ async function api(method, path, body, opts = {}) {
 
 /* ------------------------------------------------------------------ run -- */
 const server = spawn(process.execPath, ['server/index.js'], {
-  env: { ...process.env, PORT: String(PORT), BGS_DB: ':memory:' },
+  env: {
+    ...process.env,
+    PORT: String(PORT),
+    BGS_DB: ':memory:',
+    BGS_SECRET: process.env.BGS_SECRET || 'api-test-only-secret-0123456789abcdef',
+  },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let serverLog = '';
@@ -80,7 +85,7 @@ try {
   {
     const h = await api('GET', '/api/health');
     check('health endpoint responds', h.status === 200 && h.body.status === 'ok');
-    check('database is sqlite', h.body.database === 'sqlite');
+    check('database is sqlite-compatible', ['sqlite', 'libsql'].includes(h.body.database));
     check('seed data present (products > 0)', h.body.products > 0, `products=${h.body.products}`);
     check('sales history present (orders > 100)', h.body.orders > 100, `orders=${h.body.orders}`);
 
