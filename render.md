@@ -1,5 +1,22 @@
 # Deploying with a real database
 
+> **If Render says `Could not open requirements file: 'requirements.txt'`**
+> the service was created as a **Python** web service — usually because the
+> repository was still empty when the service was created, so Render fell back
+> to its Python buildpack. This is a Node project.
+>
+> **Fix:** delete that service, then create a new one from
+> <https://dashboard.render.com> → **New +** → **Blueprint** → connect
+> `sqdq2/grocerystore`. The committed `render.yaml` pins `runtime: node`,
+> `buildCommand: npm install --omit=dev` and `startCommand: npm start`.
+>
+> **Or** keep the service and switch it: **Settings → Runtime → Node →
+> Node version 22 → Save & Deploy**. (`.node-version` and `NODE_VERSION` both
+> pin Node 22, which is required for the built-in `node:sqlite` module.)
+>
+> The `requirements.txt` error is unrelated to this project — there is no
+> Python code here.
+
 ## Option A — Render (one click, free tier)
 
 1. Push this repo to GitHub.

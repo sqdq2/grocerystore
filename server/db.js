@@ -2,7 +2,19 @@
  * SQLite data-access layer built on Node 22's built-in `node:sqlite`.
  * No native dependencies — the whole stack is zero-install.
  */
-import { DatabaseSync } from 'node:sqlite';
+// `node:sqlite` is built in from Node 22.5 — fail with a clear message
+// instead of a cryptic MODULE_NOT_FOUND on older runtimes.
+let DatabaseSync;
+try {
+  ({ DatabaseSync } = await import('node:sqlite'));
+} catch {
+  console.error(
+    '\n[Bijasan] node:sqlite is unavailable on this Node runtime.\n' +
+    `         Detected ${process.version}. Node 22.5 or newer is required.\n` +
+    '         On Render set the runtime to Node 22 (.node-version is committed).\n'
+  );
+  process.exit(1);
+}
 import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -1,14 +1,24 @@
-# One-click deploy to Render (real Node server + persistent SQLite disk)
+# One-click deploy to Render — Node 22 web service + persistent SQLite disk.
+#
+#   Render → New + → Blueprint → connect sqdq2/grocerystore
+#
+# The repo root contains package.json (and no requirements.txt), so Render's
+# Node buildpack is selected automatically. `.node-version` pins Node 22,
+# which is required for the built-in `node:sqlite` module.
 services:
   - type: web
     name: bijasan-grocery-store
     runtime: node
     plan: free
-    buildCommand: npm run reset
+    buildCommand: npm install --omit=dev
     startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
       - key: NODE_VERSION
         value: "22"
+      - key: NODE_ENV
+        value: production
       - key: BGS_SECRET
         generateValue: true
     disk:
