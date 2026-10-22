@@ -53,8 +53,8 @@ export async function reportsPage() {
   const container = render(h('div', null));
 
   function renderContent() {
-    container.replaceChildren(
-      tab.value === 'sales' ? salesView() : tab.value === 'inventory' ? inventoryView() : customerView());
+    container.replaceChildren(render(
+      tab.value === 'sales' ? salesView() : tab.value === 'inventory' ? inventoryView() : customerView()));
   }
 
   function salesView() {

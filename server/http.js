@@ -121,7 +121,10 @@ export function serveStatic(root, res, urlPath) {
   res.writeHead(200, {
     'Content-Type': MIME[ext] || 'application/octet-stream',
     'Content-Length': st.size,
-    'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=3600',
+    // never serve stale JS/CSS — a cached bundle is a broken app
+    'Cache-Control': ['.js', '.mjs', '.css', '.html'].includes(ext)
+      ? 'no-cache, must-revalidate'
+      : 'public, max-age=3600',
   });
   createReadStream(file).pipe(res);
   return true;

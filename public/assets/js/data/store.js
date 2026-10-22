@@ -85,6 +85,7 @@ export const lastAdded = signal(null);                    // product just added 
 function commitCart(next) {
   cart.value = next;
   write(LS.cart, next);
+  document.dispatchEvent(new CustomEvent('cart:changed', { detail: next }));
 }
 
 export const cartCount = () => cart.value.reduce((s, i) => s + i.quantity, 0);

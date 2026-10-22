@@ -3,7 +3,7 @@
  * take payment and print the invoice, exactly like the deck's
  * Process Sale use case.
  */
-import { h, track, signal } from '../../core/react.js';
+import { h, render, track, signal } from '../../core/react.js';
 import { api } from '../../core/api.js';
 import { icon } from '../../ui/icons.js';
 import { Button, Card, EmptyState, QuantityStepper, LoadingButton, openModal, Badge } from '../../ui/components.js';
@@ -34,13 +34,31 @@ export async function billingPage() {
   const phone = signal('');
   const customerSearch = signal('');
 
+  function paintResults() {
+    const list = track(results);
+    resultsHost.replaceChildren(...(list.length
+      ? [render(h('div', null, list.map((pr, i) => h('div.pos-search-result', {
+          class: i === track(selected) ? 'sel' : '',
+          onclick: () => { add(pr, 1); search.value = ''; results.value = []; paintResults(); },
+        },
+          h('div.pos-thumb', null, productEmoji(pr)),
+          h('div.grow', null,
+            h('div.text-sm.font-semibold.truncate', null, pr.name),
+            h('div.text-xs.text-muted', null,
+              `${pr.sku} \u00b7 ${pr.quantity} in stock \u00b7 ${pr.stock_state === 'out_of_stock' ? 'OUT OF STOCK' : pr.category_name}`)),
+          h('span.mono.font-semibold', null, `\u20b9${pr.price_rupees}`)))))]
+      : []));
+    resultsHost.style.display = list.length ? '' : 'none';
+  }
+
   const searchProducts = debounce(async (q) => {
-    if (!q || q.length < 1) { results.value = []; return; }
+    if (!q || q.length < 1) { results.value = []; paintResults(); return; }
     try {
       const res = await api.get(`/products?q=${encodeURIComponent(q)}&per_page=10`);
       results.value = res.items;
       selected.value = 0;
     } catch { results.value = []; }
+    paintResults();
   }, 220);
 
   const searchCustomers = debounce(async (q) => {
@@ -54,6 +72,9 @@ export async function billingPage() {
   }, 260);
 
   const items = track(lines);
+  const resultsHost = render(h('div', { style: { padding: 'var(--sp-2)', borderBottom: '1px solid var(--border)', maxHeight: '17rem', overflowY: 'auto' } }));
+  const basketHost = render(h('div'));
+  const totalsHost = render(h('div'));
 
   function add(product, qty = 1) {
     const existing = lines.value.find((l) => l.product.id === product.id);
@@ -65,16 +86,18 @@ export async function billingPage() {
     lines.value = existing
       ? lines.value.map((l) => (l.product.id === product.id ? { ...l, quantity: nextQty } : l))
       : [...lines.value, { product, quantity: qty }];
+    paint();
   }
 
   function setQty(id, q) {
-    if (q <= 0) return lines.value = lines.value.filter((l) => l.product.id !== id);
+    if (q <= 0) { lines.value = lines.value.filter((l) => l.product.id !== id); paint(); return; }
     const line = lines.value.find((l) => l.product.id === id);
     if (q > line.product.quantity) {
       toast('warning', 'Not enough stock', `Only ${line.product.quantity} left`);
       return;
     }
     lines.value = lines.value.map((l) => (l.product.id === id ? { ...l, quantity: q } : l));
+    paint();
   }
 
   const totals = priceCart(
@@ -84,11 +107,12 @@ export async function billingPage() {
   const unitCount = items.reduce((s, i) => s + i.quantity, 0);
 
   async function completeSale() {
-    if (!items.length) return toast('error', 'Empty bill', 'Add at least one item first.');
+    const live = lines.value;
+    if (!live.length) return toast('error', 'Empty bill', 'Add at least one item first.');
     submitting.value = true;
     try {
       const order = await api.post('/orders', {
-        items: items.map((l) => ({ product_id: l.product.id, quantity: l.quantity })),
+        items: live.map((l) => ({ product_id: l.product.id, quantity: l.quantity })),
         discount_pct: track(discountPct),
         payment_mode: track(payment),
         payment_status: 'paid',
@@ -101,7 +125,7 @@ export async function billingPage() {
       // allow printing / a new bill immediately
       openInvoice(order);
       toast('success', `Bill ${order.invoice_no}`,
-        `${items.length} line${items.length === 1 ? '' : 's'} · ₹${order.totals_rupees.total}`);
+        `${live.length} line${live.length === 1 ? '' : 's'} · ₹${order.totals_rupees.total}`);
 
       // reset for the next customer
       lines.value = [];
@@ -111,6 +135,7 @@ export async function billingPage() {
       results.value = [];
       search.value = '';
       submitting.value = false;
+      paint();
     } catch (e) {
       submitting.value = false;
       toast('error', 'Could not complete the sale',
@@ -129,6 +154,73 @@ export async function billingPage() {
     }
   };
   document.addEventListener('keydown', onKey);
+
+  function currentTotals() {
+    return priceCart(
+      lines.value.map((l) => ({ price: l.product.price, quantity: l.quantity })),
+      { discountPct: track(discountPct), deliveryFee: DELIVERY_FEE, freeAbove: FREE_ABOVE }
+    );
+  }
+
+  function paint() {
+    const live = lines.value;
+    const t = currentTotals();
+    const unitCount = live.reduce((s2, i) => s2 + i.quantity, 0);
+
+    basketHost.replaceChildren(render(live.length
+      ? h('div.col.gap-2', null, live.map((l) => h('div.row.gap-3', {
+          style: { padding: 'var(--sp-2) var(--sp-3)', borderRadius: 'var(--r-md)',
+                   border: '1px solid var(--border)', background: 'var(--surface-2)' },
+        },
+          h('div.pos-thumb', null, productEmoji(l.product)),
+          h('div.grow', null,
+            h('div.text-sm.font-semibold.truncate', null, l.product.name),
+            h('div.text-xs.text-muted', null,
+              `\u20b9${l.product.price_rupees} \u00d7 ${l.quantity} \u00b7 ${l.product.sku}`)),
+          QuantityStepper({ value: l.quantity, small: true, max: l.product.quantity,
+            onChange: (n) => { setQty(l.product.id, n); paint(); } }),
+          h('span.mono.font-bold', { style: { minWidth: '4.5rem', textAlign: 'right' } },
+            `\u20b9${((l.product.price * l.quantity) / 100).toFixed(2)}`),
+          h('button.icon-btn', {
+            onclick: () => { setQty(l.product.id, 0); paint(); },
+            'aria-label': `Remove ${l.product.name}`,
+            style: { width: '1.6rem', height: '1.6rem' },
+          }, icon('trash', { size: 13 })))))
+      : EmptyState({ icon: 'receipt', title: 'Start a new bill',
+          text: 'Search or scan a product to add it. Nothing is charged until you complete the sale.' })));
+
+    totalsHost.replaceChildren(render(
+      h('div.card.card-pad', { style: { marginTop: 'auto' } },
+        h('div.row.between.mb-3', null,
+          h('h4', null, 'Bill summary'),
+          live.length
+            ? h('button.btn.btn-ghost.btn-sm', { onclick: () => { lines.value = []; paint(); }, title: 'Clear the bill' },
+                icon('x', { size: 13 }), 'Clear')
+            : null),
+        consoleRow({ label: `Items (${unitCount})`, value: `\u20b9${(t.subtotal / 100).toFixed(2)}` }),
+        track(discountPct) > 0
+          ? h('div.row-between', null,
+              h('span.text-sm.text-success', null, `Discount ${track(discountPct)}%`),
+              h('span.mono.text-sm.text-success', null, `\u2212 \u20b9${(t.discount / 100).toFixed(2)}`))
+          : null,
+        consoleRow({ label: 'Delivery',
+          value: t.delivery_fee > 0 ? `\u20b9${(t.delivery_fee / 100).toFixed(2)}` : 'Free' }),
+        h('div.summary-total', null, h('span', null, 'Total'),
+          h('span.mono', null, `\u20b9${(t.total / 100).toFixed(2)}`)),
+        h('div.mt-3', null,
+          h('div.text-xs.text-muted.uppercase.mb-2', { style: { letterSpacing: '0.07em' } }, 'Discount'),
+          h('div.chips', null, [0, 5, 10, 15].map((d) => h('button.chip', {
+            class: track(discountPct) === d ? 'active' : '',
+            onclick: () => { discountPct.value = d; paint(); },
+          }, d === 0 ? 'None' : `${d}%`)))),
+        h('button.btn.btn-primary.btn-lg.btn-block', {
+          style: { marginTop: 'var(--sp-4)' },
+          disabled: !live.length,
+          onclick: completeSale,
+        }, track(submitting) ? 'Saving\u2026' : `Complete sale \u00b7 \u20b9${(t.total / 100).toFixed(2)}`),
+        h('div.row.gap-2.mt-2', { style: { justifyContent: 'center' } },
+          h('span.text-xs.text-muted', null, 'Creates the invoice and deducts stock atomically')))));
+  }
 
   const searchPanel = h('div.card', null,
     h('div', { style: { padding: 'var(--sp-4)', borderBottom: '1px solid var(--border)' } },
@@ -150,44 +242,10 @@ export async function billingPage() {
       h('p.text-xs.text-muted.mt-2', null,
         icon('info', { size: 11 }), ' Press ', h('kbd', null, 'Enter'), ' to add the highlighted item.')),
 
-    track(results).length
-      ? h('div', { style: { padding: 'var(--sp-2)', borderBottom: '1px solid var(--border)', maxHeight: '17rem', overflowY: 'auto' } },
-          track(results).map((p, i) => h('div.pos-search-result', {
-            class: i === track(selected) ? 'sel' : '',
-            onclick: () => { add(p, 1); search.value = ''; results.value = []; },
-          },
-            h('div.pos-thumb', null, productEmoji(p)),
-            h('div.grow', null,
-              h('div.text-sm.font-semibold.truncate', null, p.name),
-              h('div.text-xs.text-muted', null,
-                `${p.sku} · ${p.quantity} in stock · ${p.stock_state === 'out_of_stock' ? 'OUT OF STOCK' : p.category_name}`)),
-            h('span.mono.font-semibold', null, `₹${p.price_rupees}`))))
-      : null,
+    resultsHost,
 
-    h('div', { style: { padding: 'var(--sp-4)', maxHeight: '22rem', overflowY: 'auto' } },
-      items.length
-        ? h('div.col.gap-2', null,
-            items.map((l) => h('div.row.gap-3', {
-              style: {
-                padding: 'var(--sp-2) var(--sp-3)', borderRadius: 'var(--r-md)',
-                border: '1px solid var(--border)', background: 'var(--surface-2)',
-              },
-            },
-              h('div.pos-thumb', null, productEmoji(l.product)),
-              h('div.grow', null,
-                h('div.text-sm.font-semibold.truncate', null, l.product.name),
-                h('div.text-xs.text-muted', null,
-                  `₹${l.product.price_rupees} × ${l.quantity} · ${l.product.sku}`)),
-              QuantityStepper({ value: l.quantity, small: true, max: l.product.quantity,
-                onChange: (n) => setQty(l.product.id, n) }),
-              h('span.mono.font-bold', { style: { minWidth: '4.5rem', textAlign: 'right' } },
-                `₹${((l.product.price * l.quantity) / 100).toFixed(2)}`),
-              h('button.icon-btn', {
-                onclick: () => setQty(l.product.id, 0), 'aria-label': `Remove ${l.product.name}`,
-                style: { width: '1.6rem', height: '1.6rem' },
-              }, icon('trash', { size: 13 })))))
-        : EmptyState({ icon: 'receipt', title: 'Start a new bill',
-            text: 'Search or scan a product to add it. Nothing is charged until you complete the sale.' })));
+    h('div', { style: { padding: 'var(--sp-4)', maxHeight: '22rem', overflowY: 'auto' } }, basketHost),
+  );
 
   const customerPanel = h('div.card.card-pad', null,
     h('div.row.between.mb-3', null,
@@ -257,45 +315,7 @@ export async function billingPage() {
     document.querySelectorAll('.pay-option').forEach((el) => el.classList.remove('active'));
   }
 
-  const totalsPanel = h('div.card.card-pad', { style: { marginTop: 'auto' } },
-    h('div.row.between.mb-3', null,
-      h('h4', null, 'Bill summary'),
-      items.length
-        ? h('button.btn.btn-ghost.btn-sm', {
-            onclick: () => { lines.value = []; }, title: 'Clear the bill',
-          }, icon('x', { size: 13 }), 'Clear')
-        : null),
-
-    consoleRow({ label: `Items (${unitCount})`, value: `₹${(totals.subtotal / 100).toFixed(2)}` }),
-    track(discountPct) > 0
-      ? h('div.row-between', null,
-          h('span.text-sm.text-success', null, `Discount ${track(discountPct)}%`),
-          h('span.mono.text-sm.text-success', null, `− ₹${(totals.discount / 100).toFixed(2)}`))
-      : null,
-    consoleRow({
-      label: 'Delivery',
-      value: totals.delivery_fee > 0 ? `₹${(totals.delivery_fee / 100).toFixed(2)}` : 'Free',
-    }),
-
-    h('div.summary-total', null, h('span', null, 'Total'),
-      h('span.mono', null, `₹${(totals.total / 100).toFixed(2)}`)),
-
-    h('div.mt-3', null,
-      h('div.text-xs.text-muted.uppercase.mb-2', { style: { letterSpacing: '0.07em' } }, 'Discount'),
-      h('div.chips', null,
-        [0, 5, 10, 15].map((d) => h('button.chip', {
-          class: track(discountPct) === d ? 'active' : '',
-          onclick: () => { discountPct.value = d; },
-        }, d === 0 ? 'None' : `${d}%`)))),
-
-    LoadingButton({
-      variant: 'primary', size: 'lg', class: 'btn-block', style: { marginTop: 'var(--sp-4)' },
-      loading: track(submitting), disabled: !items.length,
-      onclick: completeSale,
-    }, track(submitting) ? 'Saving…' : `Complete sale · ₹${(totals.total / 100).toFixed(2)}`),
-
-    h('div.row.gap-2.mt-2', { style: { justifyContent: 'center' } },
-      h('span.text-xs.text-muted', null, 'Creates the invoice and deducts stock atomically')));
+  paint();
 
   return {
     title: 'Billing counter',
@@ -313,6 +333,6 @@ export async function billingPage() {
       }),
       h('div.pos-layout', null,
         h('div.col.gap-4', null, searchPanel, customerPanel),
-        h('div.col.gap-4', { style: { position: 'sticky', top: 'calc(60px + var(--sp-4))' } }, payPanel, totalsPanel))),
+        h('div.col.gap-4', { style: { position: 'sticky', top: 'calc(60px + var(--sp-4))' } }, payPanel, totalsHost))),
   };
 }

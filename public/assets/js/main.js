@@ -8,8 +8,9 @@ import { api } from './core/api.js';
 import { icon } from './ui/icons.js';
 import { Button, EmptyState, PageLoader } from './ui/components.js';
 import { consoleSidebar, consoleTop, requireConsole, refreshAlertCount } from './ui/console.js';
-import { store, loadStore, restoreSession, user, toast, loadStore as _ls } from './data/store.js';
+import { store, loadStore, restoreSession, user, toast, cartCount, cartOpen } from './data/store.js';
 import { installGlobalChrome, StoreHeader, Footer, MobileMenu } from './ui/shell.js';
+import { ToastHost, CartDrawer } from './ui/components.js';
 import { homePage } from './pages/home.js';
 import { shopPage, dealsPage } from './pages/shop.js';
 import { productPage } from './pages/product.js';
@@ -28,6 +29,22 @@ const outlet = document.getElementById('view');
 const chrome = document.getElementById('chrome');
 
 const menuOpen = signal(false);
+
+/* global overlays: toasts + the cart drawer live above every route */
+const overlayHost = render(h('div'));
+document.body.appendChild(overlayHost);
+
+function renderOverlays() {
+  overlayHost.replaceChildren(render(ToastHost()), render(CartDrawer()));
+}
+
+function syncCartBadge() {
+  const el = document.getElementById('cart-count');
+  if (!el) return;
+  const n = cartCount();
+  el.textContent = n > 99 ? '99+' : String(n);
+  el.style.display = n > 0 ? '' : 'none';
+}
 let currentConsole = null;   // { dispose, title, actions }
 
 const CONSOLE_ROUTES = [
@@ -145,6 +162,11 @@ async function boot() {
   renderChrome();
   setNavigateHandler(() => renderChrome());
   initRouter(outlet);
+
+  // 2b. global overlays (toasts, cart drawer) + cart badge sync
+  renderOverlays();
+  document.addEventListener('cart:changed', () => { renderOverlays(); syncCartBadge(); });
+  cartOpen.subscribe(() => renderOverlays());
 
   // 3. warm the alert counter for staff
   if (user.value && ['admin', 'manager', 'staff'].includes(user.value.role)) {

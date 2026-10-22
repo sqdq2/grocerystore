@@ -50,9 +50,9 @@ export function SectionHead({ eyebrow, title, sub, action }) {
 /* -------------------------------------------------------------- overlay -- */
 /** Modal + focus trap + ESC + scroll lock. Returns { el, close }. */
 export function openModal({ title, body, footer, size = '', onClose } = {}) {
-  const overlay = h('div.overlay', {
+  const overlay = render(h('div.overlay', {
     onclick: (e) => { if (e.target === overlay) close(); },
-  });
+  }));
 
   const close = () => {
     document.removeEventListener('keydown', onKey);
@@ -65,14 +65,14 @@ export function openModal({ title, body, footer, size = '', onClose } = {}) {
     if (e.key === 'Tab') trapFocus(e, modal);
   };
 
-  const modal = h(`div.modal${size ? `.modal-${size}` : ''}`, {
+  const modal = render(h(`div.modal${size ? `.modal-${size}` : ''}`, {
     role: 'dialog', 'aria-modal': 'true', 'aria-label': typeof title === 'string' ? title : 'Dialog',
   },
     h('div.modal-head', null,
       h('h2.modal-title', null, title),
       h('button.icon-btn', { onclick: close, 'aria-label': 'Close' }, icon('x', { size: 18 }))),
     h('div.modal-body', null, body),
-    footer ? h('div.modal-foot', null, footer) : null);
+    footer ? h('div.modal-foot', null, footer) : null));
 
   overlay.appendChild(modal);
   document.body.appendChild(overlay);

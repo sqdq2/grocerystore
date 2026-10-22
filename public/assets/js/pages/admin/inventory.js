@@ -222,47 +222,47 @@ export async function inventoryPage({ query }) {
                 h('th.tbl-num', null, 'Value'),
                 h('th', { style: { width: '90px' } })))),
               h('tbody', null,
-                rows.map((row) => h('tr', null,
+                rows.map((prod) => h('tr', null,
                   h('td', null,
                     h('div.row.gap-3', null,
-                      h('div.pos-thumb', { style: { width: '2rem', height: '2rem', fontSize: '1rem' } }, productEmoji(row)),
+                      h('div.pos-thumb', { style: { width: '2rem', height: '2rem', fontSize: '1rem' } }, productEmoji(prod)),
                       h('div', null,
-                        h('a', { href: `/product/${row.slug}`, style: { fontWeight: '600' } }, row.name),
-                        h('div.text-xs.text-subtle.mono', null, row.sku,
-                          row.brand ? ` · ${row.brand}` : ''))))),
-                  h('td.text-sm.text-muted', null, row.category_name),
-                  h('td.tbl-num', null, `₹${row.price_rupees}`),
-                  h('td.tbl-num.font-bold', null, String(row.quantity)),
+                        h('a', { href: `/product/${prod.slug}`, style: { fontWeight: '600' } }, prod.name),
+                        h('div.text-xs.text-subtle.mono', null, prod.sku,
+                          prod.brand ? ` · ${prod.brand}` : '')))),
+                  h('td.text-sm.text-muted', null, prod.category_name),
+                  h('td.tbl-num', null, `₹${prod.price_rupees}`),
+                  h('td.tbl-num.font-bold', null, String(prod.quantity)),
                   h('td', null,
                     ProgressBar({
-                      value: row.quantity, max: Math.max(row.reorder_level * 3, 1),
-                      tone: row.stock_state === 'out_of_stock' ? 'var(--danger)'
-                        : row.stock_state === 'low_stock' ? 'var(--warning)' : 'var(--success)',
+                      value: prod.quantity, max: Math.max(prod.reorder_level * 3, 1),
+                      tone: prod.stock_state === 'out_of_stock' ? 'var(--danger)'
+                        : prod.stock_state === 'low_stock' ? 'var(--warning)' : 'var(--success)',
                       height: 6,
                     }),
-                    h('div.text-xs.text-subtle.mt-1', null, `reorder ${row.reorder_level}`)),
-                  h('td', null, StockBadge(row)),
-                  h('td.tbl-num', null, `₹${(row.stock_value / 100).toLocaleString('en-IN')}`),
+                    h('div.text-xs.text-subtle.mt-1', null, `reorder ${prod.reorder_level}`)),
+                  h('td', null, StockBadge(prod)),
+                  h('td.tbl-num', null, `₹${(prod.stock_value / 100).toLocaleString('en-IN')}`),
                   h('td', null,
                     h('div.row.gap-1', null,
                       can('inventory:write')
                         ? h('button.icon-btn', {
-                            onclick: () => openStockActions(p),
-                            'aria-label': `Update stock for ${p.name}`, title: 'Receive / adjust',
+                            onclick: () => openStockActions(prod),
+                            'aria-label': `Update stock for ${prod.name}`, title: 'Receive / adjust',
                             style: { width: '1.8rem', height: '1.8rem' },
                           }, icon('edit', { size: 14 }))
                         : null,
                       can('catalog:write')
                         ? h('button.icon-btn', {
                             onclick: async () => {
-                              if (await openProductEditor(p, cats.items)) {
+                              if (await openProductEditor(prod, cats.items)) {
                                 navigate(`/admin/inventory${qs({ q: track(q), category: track(cat), low: track(onlyLow) })}`);
                               }
                             },
-                            'aria-label': `Edit ${p.name}`, title: 'Edit product',
+                            'aria-label': `Edit ${prod.name}`, title: 'Edit product',
                             style: { width: '1.8rem', height: '1.8rem' },
                           }, icon('settings', { size: 14 }))
-                        : null)))))
+                        : null))))))
         : EmptyState({
             icon: 'box', title: 'Nothing matches',
             text: 'Try a different search term or clear the category filter.',

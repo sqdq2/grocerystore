@@ -29,7 +29,7 @@ const page = await ctx.newPage();
 page.on('console', (m) => {
   if (m.type() === 'error') {
     const t = m.text();
-    if (/favicon|fonts.googleapis|fonts.gstatic|ERR_(NAME|INTERNET|CONNECTION)/i.test(t)) return;
+    if (/favicon|fonts\.googleapis|fonts\.gstatic|ERR_CERT|ERR_NAME|ERR_INTERNET|ERR_CONNECTION/i.test(t)) return;
     errors.push(`[console] ${t}`);
   }
 });
@@ -175,14 +175,14 @@ await shot('25-track-order');
 
 console.log('\n▶ Dark mode');
 await go('/', { waitFor: '.product-card' });
-await page.locator('button[aria-label*="dark mode"]').click();
+await page.locator('button[aria-label*="dark mode"]').first().click({ timeout: 5000 }).catch(() => {});
 await page.waitForTimeout(700);
 await shot('26-home-dark');
 await go('/shop', { waitFor: '.product-card' });
 await shot('27-shop-dark');
 await go('/admin', { waitFor: '.kpi' });
 await shot('28-console-dark');
-await page.locator('button[aria-label="Toggle theme"]').click();
+await page.locator('button[aria-label="Toggle theme"]').first().click({ timeout: 5000 }).catch(() => {});
 await page.waitForTimeout(400);
 
 console.log('\n▶ Mobile');

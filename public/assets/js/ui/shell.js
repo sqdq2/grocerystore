@@ -68,7 +68,9 @@ export function StoreHeader() {
           'aria-label': `Open cart, ${count} item${count === 1 ? '' : 's'}`,
           title: 'Cart',
         }, icon('cart', { size: 18 }),
-          count > 0 ? h('span.count', null, count > 99 ? '99+' : count) : null),
+          h('span.count#cart-count', {
+            style: count > 0 ? {} : { display: 'none' },
+          }, count > 99 ? '99+' : String(count))),
 
         u
           ? h('div.row.gap-2', { style: { marginLeft: '4px' } },
