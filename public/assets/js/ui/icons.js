@@ -10,7 +10,7 @@ const svg = (paths, { size = 20, fill = 'none', stroke = true, strokeWidth = 1.8
     fill: 'none', 'aria-hidden': 'true', focusable: 'false',
     stroke: stroke ? 'currentColor' : 'none',
     'stroke-width': strokeWidth, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
-  }, ...paths);
+  }, ...paths.map((d) => h('path', { d })));
 
 const P = {
   home:      ['M3 10.5 12 3l9 7.5', 'M5 9.5V21h14V9.5', 'M9.5 21v-6h5v6'],

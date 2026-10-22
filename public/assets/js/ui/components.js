@@ -14,37 +14,43 @@ import { stockChip, statusBadge, Tabs, Avatar, ProgressBar } from './bits.js';
 export { Tabs, Avatar, ProgressBar };
 
 /* --------------------------------------------------------------- buttons -- */
-export function Button(props = {}) {
+export function Button(props = {}, ...kids) {
   const { variant = 'default', size, icon: ic, iconRight, children, ...rest } = props;
+  // children may arrive as Button(props, 'label') or Button({ children: 'label' })
+  const content = children ?? kids.filter((k) => !(k && typeof k === 'object' && !k.tag));
+  const iconOpts = kids.find((k) => k && typeof k === 'object' && !k.tag) || {};
   const cls = ['btn', variant !== 'default' && `btn-${variant}`, size && `btn-${size}`,
-    !children && (ic || iconRight) && 'btn-icon', props.class]
+    !content && (ic || iconRight) && 'btn-icon', props.class]
     .filter(Boolean).join(' ');
   return h('button', {
     type: props.type || 'button',
     class: cls,
     ...rest,
-  }, ic ? icon(ic, { size: size === 'sm' ? 14 : 16 }) : null, children, iconRight ? icon(iconRight, { size: size === 'sm' ? 14 : 16 }) : null);
+  }, ic ? icon(ic, { size: size === 'sm' ? 14 : (iconOpts.size ?? 16) }) : null,
+     content,
+     iconRight ? icon(iconRight, { size: size === 'sm' ? 14 : (iconOpts.size ?? 16) }) : null);
 }
 
 /* ---------------------------------------------------------------- badge -- */
-export const Badge = (props) => h('span', {
+export const Badge = (props = {}, ...kids) => h('span', {
   class: ['badge', props.tone && `badge-${props.tone}`, props.class].filter(Boolean).join(' '),
-}, props.dot ? h('span.badge-dot') : null, props.children);
+}, props.dot ? h('span.badge-dot') : null, props.children ?? kids);
 
 export { statusBadge, stockChip };
 
 /* ---------------------------------------------------------------- cards -- */
-export const Card = (props) => h('div.card', {
+export const Card = (props = {}, ...kids) => h('div.card', {
   class: ['card-pad', props.hover && 'card-hover', props.class].filter(Boolean).join(' '),
-}, props.children);
+}, props.children ?? kids);
 
-export function SectionHead({ eyebrow, title, sub, action }) {
+export function SectionHead({ eyebrow, title, sub, action }, ...kids) {
   return h('div.section-head', null,
     h('div', null,
       eyebrow ? h('span.eyebrow', null, eyebrow) : null,
       h('h2.section-title', null, title),
       sub ? h('p.section-sub', null, sub) : null),
-    action || null);
+    action || null,
+    kids.length ? kids : null);
 }
 
 /* -------------------------------------------------------------- overlay -- */
@@ -153,9 +159,10 @@ export const Skeletons = (n = 8) => h('div.product-grid', null, Array.from({ len
 export const Spinner = ({ size = 16 }) =>
   h('span.spinner', { style: { width: `${size}px`, height: `${size}px` }, role: 'status', 'aria-label': 'Loading' });
 
-export function LoadingButton(props, children) {
+export function LoadingButton(props, ...children) {
   const { loading, ...rest } = props;
-  return Button({ ...rest, disabled: loading || props.disabled }, loading ? Spinner({ size: 14 }) : null, children);
+  return Button({ ...rest, disabled: loading || props.disabled },
+    loading ? Spinner({ size: 14 }) : null, ...children);
 }
 
 /* --------------------------------------------------------------- inputs -- */
